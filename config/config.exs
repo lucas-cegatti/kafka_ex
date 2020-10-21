@@ -14,9 +14,9 @@ config :kafka_ex,
   # server.properties file.
   # In the case below you would set "advertised.host.name=localhost"
   brokers: [
-    {"localhost", 9093},
-    {"localhost", 9094},
-    {"localhost", 9095}
+    {"b-2.kafkacluster.xszvef.c8.kafka.us-east-1.amazonaws.com", 9096},
+    {"b-1.kafkacluster.xszvef.c8.kafka.us-east-1.amazonaws.com", 9096}
+    # {"localhost", 9095}
   ],
   #
   # OR:
@@ -68,7 +68,14 @@ config :kafka_ex,
   # set this to the version of the kafka broker that you are using
   # include only major.minor.patch versions.  must be at least 0.8.0
   # use "kayrock" for the new client
-  kafka_version: "0.10.1"
+  kafka_version: "0.10.1",
+
+  # set this value if you want to configure kafka sasl authentication.
+  sasl: [
+    # mechanism: "SCRAM-SHA-512", # PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512
+    # username: "username",
+    # password: "password"
+  ]
 
 env_config = Path.expand("#{Mix.env()}.exs", __DIR__)
 

@@ -84,6 +84,8 @@ defmodule KafkaEx.Server0P10AndLater do
     use_ssl = Keyword.get(args, :use_ssl, false)
     ssl_options = Keyword.get(args, :ssl_options, [])
 
+    sasl = Keyword.get(args, :sasl, [])
+
     brokers =
       Enum.map(uris, fn {host, port} ->
         %Broker{
@@ -108,6 +110,8 @@ defmodule KafkaEx.Server0P10AndLater do
     :no_error = error_code
 
     api_versions = KafkaEx.ApiVersions.api_versions_map(api_versions)
+
+    maybe_authenticate(brokers, state.correlation_id, api_versions, config_sync_timeout(), sasl)
 
     {correlation_id, metadata} = try do
       retrieve_metadata(

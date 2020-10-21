@@ -55,6 +55,8 @@ defmodule KafkaEx.Config do
     |> brokers()
   end
 
+  def sasl, do: Application.get_env(:kafka_ex, :sasl)
+
   defp brokers(nil),
     do: nil
 

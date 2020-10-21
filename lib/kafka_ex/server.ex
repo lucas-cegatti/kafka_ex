@@ -20,6 +20,8 @@ defmodule KafkaEx.Server do
   alias KafkaEx.Protocol.SyncGroup.Request, as: SyncGroupRequest
   alias KafkaEx.Protocol.CreateTopics.TopicRequest, as: CreateTopicsRequest
   alias KafkaEx.Socket
+  alias KafkaEx.Sasl.Scram
+  alias KafkaEx.Protocol.Sasl
 
   defmodule State do
     @moduledoc false
@@ -401,7 +403,11 @@ defmodule KafkaEx.Server do
 
         produce_request_data =
           try do
-            Produce.create_request(correlation_id, Config.client_id(), produce_request)
+            Produce.create_request(
+              correlation_id,
+              Config.client_id(),
+              produce_request
+            )
           rescue
             e in FunctionClauseError -> nil
           end
@@ -620,6 +626,215 @@ defmodule KafkaEx.Server do
         }
       end
 
+      def maybe_authenticate(
+            _brokers,
+            _correlation_id,
+            _api_versions,
+            _sync_timeout,
+            []
+          ),
+          do: :no_auth
+
+      def maybe_authenticate(
+            brokers,
+            correlation_id,
+            api_versions,
+            sync_timeout,
+            sasl
+          ) do
+        api_version = Map.get(api_versions, 17, %{}) |> Map.get(:max_version, 0)
+
+        sasl_request =
+          Sasl.create_handshake_request(
+            correlation_id,
+            Config.client_id(),
+            api_version,
+            sasl[:mechanism]
+          )
+
+        response = first_broker_response(sasl_request, brokers, sync_timeout)
+
+        if response do
+          sasl_handshake_response =
+            Sasl.SaslHandshakeResponse.parse_response(response)
+
+          case sasl_handshake_response do
+            %Sasl.SaslHandshakeResponse{error_code: 0} ->
+              sasl_authenticate_api_version = 0
+
+              do_authentication(
+                :initial,
+                sasl,
+                correlation_id,
+                sasl_authenticate_api_version,
+                sync_timeout,
+                brokers
+              )
+
+            %Sasl.SaslHandshakeResponse{
+              error_code: code,
+              mechanisms: mechanisms
+            } ->
+              message =
+                "Sasl Mechanism (#{sasl[:mechanism]}) not supported. Supported mechanisms are #{
+                  Enum.join(mechanisms, ",")
+                }"
+
+              Logger.log(:error, message)
+              raise message
+          end
+        else
+          message =
+            "Unable to authenticate from any brokers. Timeout is #{sync_timeout}."
+
+          Logger.log(:error, message)
+          raise message
+          :no_auth
+        end
+      end
+
+      defp do_authentication(
+             %{mechanism: "PLAIN"},
+             correlation_id,
+             api_version,
+             sync_timeout
+           ) do
+      end
+
+      defp do_authentication(
+             :initial,
+             sasl,
+             correlation_id,
+             api_version,
+             sync_timeout,
+             brokers
+           ) do
+        nonce = Scram.challenge()
+
+        username = Keyword.fetch!(sasl, :username)
+
+        sasl_init_request_message =
+          Sasl.create_client_first_message(
+            correlation_id,
+            Config.client_id(),
+            api_version,
+            username,
+            nonce
+          )
+
+        response =
+          first_broker_response(
+            sasl_init_request_message,
+            brokers,
+            sync_timeout
+          )
+
+        if response do
+          sasl_init_response =
+            Sasl.SaslAuthenticateResponse.parse_response(response)
+
+          case sasl_init_response do
+            %Sasl.SaslAuthenticateResponse{
+              error_code: 0,
+              auth_bytes: auth_bytes
+            } ->
+              do_authentication(
+                :intermediate,
+                sasl,
+                correlation_id,
+                sasl_init_response,
+                api_version,
+                sync_timeout,
+                brokers
+              )
+
+            %Sasl.SaslAuthenticateResponse{
+              error_code: error_code,
+              error_message: error_message
+            } ->
+              message =
+                "Sasl Scram Initial Authentication Failed with message #{
+                  error_message
+                }, code #{error_code}"
+
+              Logger.log(:error, message)
+              raise message
+              :no_auth
+          end
+        else
+          message =
+            "Unable to make initial authentication for sasl. Timeout is #{
+              sync_timeout
+            }."
+
+          Logger.log(:error, message)
+          raise message
+          :no_auth
+        end
+      end
+
+      defp do_authentication(
+             :intermediate,
+             sasl,
+             correlation_id,
+             %Sasl.SaslAuthenticateResponse{auth_bytes: auth_bytes} =
+               _sasl_initial_response,
+             api_version,
+             sync_timeout,
+             brokers
+           ) do
+        verification_message =
+          Scram.verify(auth_bytes, sasl)
+          |> IO.iodata_to_binary()
+
+        sasl_intermediate_request =
+          Sasl.create_intermediate_sasl_request(
+            correlation_id,
+            Config.client_id(),
+            api_version,
+            verification_message
+          )
+
+        response =
+          first_broker_response(
+            sasl_intermediate_request,
+            brokers,
+            sync_timeout
+          )
+
+        if response do
+          sasl_intermediate_response =
+            Sasl.SaslAuthenticateResponse.parse_response(response)
+
+          case sasl_intermediate_response do
+            %Sasl.SaslAuthenticateResponse{error_code: 0} ->
+              :success
+
+            %Sasl.SaslAuthenticateResponse{
+              error_code: error_code,
+              error_message: error_message
+            } ->
+              message =
+                "Sasl Scram Intermediate Authentication Failed with message: #{
+                  error_message
+                }, code #{error_code}"
+
+              Logger.log(:error, message)
+              raise message
+              :no_auth
+          end
+        else
+          message =
+            "Unable to make intermediate authentication for sasl. Timeout is #{
+              sync_timeout
+            }."
+
+          Logger.log(:error, message)
+          raise message
+          :no_auth
+        end
+      end
+
       # credo:disable-for-next-line Credo.Check.Refactor.FunctionArity
       def retrieve_metadata(
             brokers,
@@ -762,16 +977,18 @@ defmodule KafkaEx.Server do
 
         check_brokers_sockets!(brokers)
 
-        {correlation_id, metadata} = try do
-          retrieve_metadata(
-            brokers,
-            0,
-            config_sync_timeout()
-          )
-        rescue e ->
-          sleep_for_reconnect()
-          Kernel.reraise(e, System.stacktrace())
-        end
+        {correlation_id, metadata} =
+          try do
+            retrieve_metadata(
+              brokers,
+              0,
+              config_sync_timeout()
+            )
+          rescue
+            e ->
+              sleep_for_reconnect()
+              Kernel.reraise(e, System.stacktrace())
+          end
 
         state = %State{
           metadata: metadata,
@@ -800,8 +1017,9 @@ defmodule KafkaEx.Server do
       end
 
       defp check_brokers_sockets!(brokers) do
-        any_socket_opened = brokers
-        |> Enum.any?(fn %Broker{socket: socket} -> not is_nil(socket) end)
+        any_socket_opened =
+          brokers
+          |> Enum.any?(fn %Broker{socket: socket} -> not is_nil(socket) end)
 
         if not any_socket_opened do
           sleep_for_reconnect()
@@ -1000,7 +1218,9 @@ defmodule KafkaEx.Server do
         Application.get_env(:kafka_ex, :partitioner, KafkaEx.DefaultPartitioner)
       end
 
-      defp increment_state_correlation_id(%_{correlation_id: correlation_id} = state) do
+      defp increment_state_correlation_id(
+             %_{correlation_id: correlation_id} = state
+           ) do
         %{state | correlation_id: correlation_id + 1}
       end
     end

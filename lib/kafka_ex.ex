@@ -623,7 +623,8 @@ defmodule KafkaEx do
       uris: Config.brokers(),
       consumer_group: Config.consumer_group(),
       use_ssl: Config.use_ssl(),
-      ssl_options: Config.ssl_options()
+      ssl_options: Config.ssl_options(),
+      sasl: Config.sasl()
     ]
 
     worker_init = Keyword.merge(defaults, worker_init)

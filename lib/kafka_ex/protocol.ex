@@ -13,9 +13,11 @@ defmodule KafkaEx.Protocol do
     heartbeat: 12,
     leave_group: 13,
     sync_group: 14,
+    sasl: 17,
     api_versions: 18,
     create_topics: 19,
-    delete_topics: 20
+    delete_topics: 20,
+    sasl_authenticate: 36
   }
 
   # DescribeConfigs	32
