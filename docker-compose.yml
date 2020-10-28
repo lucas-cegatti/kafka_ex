@@ -9,24 +9,31 @@ services:
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9093:9093"
+      - "9096:9096"
     depends_on:
       - zookeeper
     volumes:
       - ./ssl:/ssl
+      # - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf
     env_file: docker-compose-kafka.env
+    # env_file: docker-compose-kafka-sasl.env
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ADVERTISED_PORT: 9093
+      
 
   kafka2:
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9094:9094"
+      - "9097:9097"
     depends_on:
       - zookeeper
     volumes:
       - ./ssl:/ssl
+      # - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf
     env_file: docker-compose-kafka.env
+    # env_file: docker-compose-kafka-sasl.env
     environment:
       KAFKA_BROKER_ID: 2
       KAFKA_ADVERTISED_PORT: 9094
@@ -35,11 +42,14 @@ services:
     image: wurstmeister/kafka:0.11.0.1
     ports:
       - "9095:9095"
+      - "9098:9098"
     depends_on:
       - zookeeper
     volumes:
       - ./ssl:/ssl
+      # - ./kafka_server_jaas.conf:/etc/kafka/kafka_server_jaas.conf
     env_file: docker-compose-kafka.env
+    # env_file: docker-compose-kafka-sasl.env
     environment:
       KAFKA_BROKER_ID: 3
       KAFKA_ADVERTISED_PORT: 9095

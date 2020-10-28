@@ -672,13 +672,37 @@ defmodule KafkaEx.Server do
               )
 
             %Sasl.SaslHandshakeResponse{
-              error_code: code,
+              error_code: 33,
               mechanisms: mechanisms
             } ->
               message =
                 "Sasl Mechanism (#{sasl[:mechanism]}) not supported. Supported mechanisms are #{
                   Enum.join(mechanisms, ",")
-                }"
+                }. Error Code 33"
+
+              Logger.log(:error, message)
+              raise message
+
+            %Sasl.SaslHandshakeResponse{
+              error_code: 34,
+              mechanisms: mechanisms
+            } ->
+              message =
+                "Unexpected handshake request with client mechanism #{
+                  sasl[:mechanism]
+                }, enabled mechanisms are #{Enum.join(mechanisms, ",")}. Error Code 34"
+
+              Logger.log(:error, message)
+              raise message
+
+            %Sasl.SaslHandshakeResponse{
+              error_code: code,
+              mechanisms: mechanisms
+            } ->
+              message =
+                "Unknown error code #{code}, client mechanism is #{
+                  sasl[:mechanism]
+                }, enabled mechanisms are #{Enum.join(mechanisms, ",")}"
 
               Logger.log(:error, message)
               raise message

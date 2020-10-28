@@ -73,8 +73,8 @@ config :kafka_ex,
   # set this value if you want to configure kafka sasl authentication.
   sasl: [
     # mechanism: "SCRAM-SHA-512", # PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512
-    # username: "username",
-    # password: "password"
+    # username: "admin",
+    # password: "adminsecret"
   ]
 
 env_config = Path.expand("#{Mix.env()}.exs", __DIR__)
